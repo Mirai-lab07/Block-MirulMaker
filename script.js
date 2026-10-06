@@ -55,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleMute() {
             this.isMuted = !this.isMuted;
             this.sounds.forEach(sound => sound.volume = this.isMuted ? 0 : this.volume);
-            muteButton.textContent = this.isMuted ? 'Unmute' : 'Mute';
+            muteButton.innerHTML = this.isMuted ? '<i class="fa-solid fa-volume-high"></i> Unmute' : '<i class="fa-solid fa-volume-xmark"></i> Mute';
         }
 
         play(sound) {
@@ -252,16 +252,33 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- Theme Switching ---
+    // --- Theme & Color Caching ---
+    let themeColors = {
+        gridBg: '#fff',
+        gridLinesMajor: '#b0dbe4',
+        gridLinesMinor: '#e0f2f7',
+        invalidPlacement: '#F00'
+    };
+
+    function updateThemeColors() {
+        const computed = getComputedStyle(document.documentElement);
+        themeColors.gridBg = computed.getPropertyValue('--grid-bg').trim() || '#fff';
+        themeColors.gridLinesMajor = computed.getPropertyValue('--grid-lines-major').trim() || '#b0dbe4';
+        themeColors.gridLinesMinor = computed.getPropertyValue('--grid-lines-minor').trim() || '#e0f2f7';
+        themeColors.invalidPlacement = computed.getPropertyValue('--invalid-placement-color').trim() || '#F00';
+    }
+
     themeSwitcher.addEventListener('click', () => {
         body.classList.toggle('dark-theme');
+        const icon = themeSwitcher.querySelector('i');
+        if (icon) {
+            icon.className = body.classList.contains('dark-theme') ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+        }
+        updateThemeColors();
         draw();
     });
 
-    function getCssVariable(variable) {
-        return getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
-    }
-
+    const colorCache = new Map();
     function adjustColor(hex, percent) {
         let f = parseInt(hex.slice(1), 16),
             t = percent < 0 ? 0 : 255,
@@ -270,6 +287,23 @@ document.addEventListener('DOMContentLoaded', () => {
             G = (f >> 8) & 0x00ff,
             B = f & 0x0000ff;
         return "#" + (0x1000000 + (Math.round((t - R) * p) + R) * 0x10000 + (Math.round((t - G) * p) + G) * 100 + (Math.round((t - B) * p) + B)).toString(16).slice(1);
+    }
+
+    function getAdjustedColor(hex, percent) {
+        const key = hex + '_' + percent;
+        let cached = colorCache.get(key);
+        if (!cached) {
+            cached = adjustColor(hex, percent);
+            colorCache.set(key, cached);
+        }
+        return cached;
+    }
+
+    let cachedCanvasRect = null;
+    function updateCanvasRect() {
+        if (canvas) {
+            cachedCanvasRect = canvas.getBoundingClientRect();
+        }
     }
 
     // --- Responsive Sizing ---
@@ -282,6 +316,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         CELL_SIZE = canvas.width / GRID_SIZE;
 
+        updateThemeColors();
+        updateCanvasRect();
         updateBlockContainerElements();
     }
 
@@ -303,6 +339,8 @@ document.addEventListener('DOMContentLoaded', () => {
         adjustCanvasAndCellSizes();
         draw();
     });
+
+    window.addEventListener('scroll', updateCanvasRect, { passive: true });
 
     // --- Block Generation & Display ---
     function generateAvailableBlocks() {
@@ -351,40 +389,82 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Interact.js Drag and Drop Logic ---
     function setupInteract() {
-        const handleDragMove = throttle((event) => {
+        const calculateGridPos = (clientPos) => {
+            if (!draggedBlockInfo) return { gridX: 0, gridY: 0 };
+            if (!cachedCanvasRect) updateCanvasRect();
+            const canvasRect = cachedCanvasRect;
+            const pointerX = clientPos.x - canvasRect.left;
+            const pointerY = clientPos.y - canvasRect.top;
+
+            const shapeCols = draggedBlockInfo.shape[0].length;
+            const shapeRows = draggedBlockInfo.shape.length;
+            const blockWidth = shapeCols * CELL_SIZE;
+            const blockHeight = shapeRows * CELL_SIZE;
+
+            const blockCanvasX = pointerX - (draggedBlockInfo.grabRatioX * blockWidth);
+            const blockCanvasY = pointerY - (draggedBlockInfo.grabRatioY * blockHeight);
+
+            const gridX = Math.round(blockCanvasX / CELL_SIZE);
+            const gridY = Math.round(blockCanvasY / CELL_SIZE);
+
+            return { gridX, gridY };
+        };
+
+        const handleDragMove = (event) => {
             if (isGameOver || isPaused || !draggedBlockInfo) return;
             
-            const canvasRect = canvas.getBoundingClientRect();
-            const x = event.dragEvent.client.x - canvasRect.left;
-            const y = event.dragEvent.client.y - canvasRect.top;
+            const clientPos = event.dragEvent ? event.dragEvent.client : event.client;
+            if (!clientPos) return;
 
-            const gridX = Math.floor(x / CELL_SIZE);
-            const gridY = Math.floor(y / CELL_SIZE);
+            const { gridX, gridY } = calculateGridPos(clientPos);
 
             if (!ghostBlock) ghostBlock = {};
             ghostBlock.shape = draggedBlockInfo.shape;
             ghostBlock.color = draggedBlockInfo.color;
             ghostBlock.x = gridX;
             ghostBlock.y = gridY;
-        }, 16);
+        };
+
+        const resetBlockPos = (target) => {
+            if (!target) return;
+            target.classList.remove('dragging');
+            target.style.transition = 'transform 0.2s ease-out';
+            target.style.transform = 'translate3d(0px, 0px, 0)';
+            target.setAttribute('data-x', '0');
+            target.setAttribute('data-y', '0');
+            setTimeout(() => {
+                target.style.transition = '';
+            }, 200);
+        };
 
         interact('.block').draggable({
-            inertia: true,
-            autoScroll: true,
+            inertia: false,
+            autoScroll: false,
             listeners: {
                 start (event) {
                     if (isGameOver || isPaused) return;
+                    updateCanvasRect();
                     const target = event.target;
                     const blockName = target.dataset.name;
                     const shapeInfo = SHAPES.find(s => s.name === blockName);
+
+                    const targetRect = target.getBoundingClientRect();
+                    const clientX = event.client ? event.client.x : 0;
+                    const clientY = event.client ? event.client.y : 0;
+                    const grabX = clientX - targetRect.left;
+                    const grabY = clientY - targetRect.top;
 
                     if (shapeInfo) {
                         draggedBlockInfo = {
                             ...shapeInfo,
                             target: target,
+                            grabRatioX: targetRect.width > 0 ? Math.min(Math.max(grabX / targetRect.width, 0), 1) : 0.5,
+                            grabRatioY: targetRect.height > 0 ? Math.min(Math.max(grabY / targetRect.height, 0), 1) : 0.5,
                         };
                     }
-                    target.style.zIndex = 1000;
+                    target.classList.add('dragging');
+                    target.style.transition = 'none';
+                    target.style.zIndex = '1000';
                 },
                 move (event) {
                     if (isGameOver || isPaused) return;
@@ -392,23 +472,36 @@ document.addEventListener('DOMContentLoaded', () => {
                     const x = (parseFloat(target.getAttribute('data-x')) || 0) + event.dx;
                     const y = (parseFloat(target.getAttribute('data-y')) || 0) + event.dy;
 
-                    target.style.transform = `translate(${x}px, ${y}px)`;
+                    target.style.transform = `translate3d(${x}px, ${y}px, 0)`;
                     target.setAttribute('data-x', x);
                     target.setAttribute('data-y', y);
+
+                    // Update ghost block during movement if over grid canvas area
+                    if (draggedBlockInfo) {
+                        if (!cachedCanvasRect) updateCanvasRect();
+                        const canvasRect = cachedCanvasRect;
+                        const clientX = event.client ? event.client.x : 0;
+                        const clientY = event.client ? event.client.y : 0;
+                        if (
+                            clientX >= canvasRect.left - CELL_SIZE &&
+                            clientX <= canvasRect.right + CELL_SIZE &&
+                            clientY >= canvasRect.top - CELL_SIZE &&
+                            clientY <= canvasRect.bottom + CELL_SIZE
+                        ) {
+                            handleDragMove(event);
+                        } else {
+                            ghostBlock = null;
+                        }
+                    }
                 },
                 end (event) {
                     if (isGameOver || isPaused) return;
-                    if (!event.relatedTarget && draggedBlockInfo) {
-                        draggedBlockInfo.target.style.transition = 'transform 0.5s ease-in-out';
-                        draggedBlockInfo.target.style.transform = 'translate(0px, 0px)';
-                        draggedBlockInfo.target.setAttribute('data-x', 0);
-                        draggedBlockInfo.target.setAttribute('data-y', 0);
-                        setTimeout(() => {
-                            if(draggedBlockInfo) draggedBlockInfo.target.style.transition = '';
-                        }, 500);
-                    }
-                    if(draggedBlockInfo) {
-                        draggedBlockInfo.target.style.zIndex = '';
+                    const target = draggedBlockInfo ? draggedBlockInfo.target : event.target;
+                    if (target) {
+                        target.style.zIndex = '';
+                        if (!event.relatedTarget) {
+                            resetBlockPos(target);
+                        }
                     }
                     ghostBlock = null;
                     draggedBlockInfo = null;
@@ -426,18 +519,19 @@ document.addEventListener('DOMContentLoaded', () => {
             ondrop: function (event) {
                 if (isGameOver || isPaused || !draggedBlockInfo) return;
                 
-                const canvasRect = canvas.getBoundingClientRect();
-                const dropX = event.dragEvent.client.x - canvasRect.left;
-                const dropY = event.dragEvent.client.y - canvasRect.top;
-
-                const gridX = Math.floor(dropX / CELL_SIZE);
-                const gridY = Math.floor(dropY / CELL_SIZE);
+                const clientPos = event.dragEvent ? event.dragEvent.client : event.client;
+                const { gridX, gridY } = calculateGridPos(clientPos);
 
                 const finalBlock = { ...draggedBlockInfo, x: gridX, y: gridY };
 
                 if (isValidPlacement(finalBlock)) {
                     placeBlock(finalBlock);
-                    draggedBlockInfo.target.remove();
+                    const target = draggedBlockInfo.target;
+                    draggedBlockInfo = null;
+                    ghostBlock = null;
+                    if (target && target.parentNode) {
+                        target.remove();
+                    }
                     if (blockContainer.children.length === 0) {
                         generateAvailableBlocks();
                     }
@@ -445,18 +539,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     checkGameOver();
                 } else {
                     displayMessage('Invalid placement!', 'red', 1000);
-                    if (draggedBlockInfo.target) {
-                        draggedBlockInfo.target.style.transition = 'transform 0.5s ease-in-out';
-                        draggedBlockInfo.target.style.transform = 'translate(0px, 0px)';
-                        draggedBlockInfo.target.setAttribute('data-x', 0);
-                        draggedBlockInfo.target.setAttribute('data-y', 0);
-                        setTimeout(() => {
-                             if(draggedBlockInfo) draggedBlockInfo.target.style.transition = '';
-                        }, 500);
+                    const target = draggedBlockInfo.target;
+                    ghostBlock = null;
+                    draggedBlockInfo = null;
+                    if (target) {
+                        resetBlockPos(target);
                     }
                 }
-            },
-            ondropmove: handleDragMove
+            }
         });
     }
     
@@ -708,49 +798,65 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function drawBackgroundGrid() {
-        ctx.fillStyle = getCssVariable('--grid-bg');
+        ctx.fillStyle = themeColors.gridBg;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
     function drawGridLines() {
-        ctx.strokeStyle = getCssVariable('--grid-lines-major');
-        ctx.lineWidth = 2; 
-        for (let i = 0; i <= GRID_SIZE; i++) {
-            ctx.beginPath();
-            ctx.moveTo(i * CELL_SIZE, 0);
-            ctx.lineTo(i * CELL_SIZE, GRID_SIZE * CELL_SIZE);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(0, i * CELL_SIZE);
-            ctx.lineTo(GRID_SIZE * CELL_SIZE, i * CELL_SIZE);
-            ctx.stroke();
-        }
-
-        ctx.strokeStyle = getCssVariable('--grid-lines-minor');
-        ctx.lineWidth = 1;
         for (let r = 0; r < GRID_SIZE; r++) {
             for (let c = 0; c < GRID_SIZE; c++) {
-                ctx.strokeRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                const gap = 2;
+                const cellX = c * CELL_SIZE + gap;
+                const cellY = r * CELL_SIZE + gap;
+                const size = CELL_SIZE - gap * 2;
+                const radius = Math.max(3, Math.floor(size * 0.16));
+
+                drawRoundedRectPath(ctx, cellX, cellY, size, size, radius);
+                ctx.fillStyle = themeColors.gridLinesMinor;
+                ctx.fill();
             }
         }
     }
     
+    function drawRoundedRectPath(ctx, x, y, width, height, radius) {
+        if (ctx.roundRect) {
+            ctx.beginPath();
+            ctx.roundRect(x, y, width, height, radius);
+        } else {
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + width - radius, y);
+            ctx.arcTo(x + width, y, x + width, y + height, radius);
+            ctx.lineTo(x + width, y + height - radius);
+            ctx.arcTo(x + width, y + height, x, y + height, radius);
+            ctx.lineTo(x + radius, y + height);
+            ctx.arcTo(x, y + height, x, y, radius);
+            ctx.lineTo(x, y + radius);
+            ctx.arcTo(x, y, x + width, y, radius);
+            ctx.closePath();
+        }
+    }
+
     function drawBlockCell(x, y, color, alpha = 1.0) {
         ctx.globalAlpha = alpha;
         
+        const gap = 2;
+        const cellX = x + gap;
+        const cellY = y + gap;
+        const size = CELL_SIZE - gap * 2;
+        const radius = Math.max(3, Math.floor(size * 0.16));
+
+        drawRoundedRectPath(ctx, cellX, cellY, size, size, radius);
         ctx.fillStyle = color;
-        ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+        ctx.fill();
 
-        ctx.fillStyle = adjustColor(color, 0.2);
-        ctx.fillRect(x, y, CELL_SIZE, 2);
-        ctx.fillRect(x, y, 2, CELL_SIZE);
+        drawRoundedRectPath(ctx, cellX + 2, cellY + 2, size - 4, size / 2.5, Math.max(2, radius - 2));
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+        ctx.fill();
 
-        ctx.fillStyle = adjustColor(color, -0.2);
-        ctx.fillRect(x, y + CELL_SIZE - 2, CELL_SIZE, 2);
-        ctx.fillRect(x + CELL_SIZE - 2, y, 2, CELL_SIZE);
-
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-        ctx.fillRect(x + 2, y + 2, CELL_SIZE / 3, CELL_SIZE / 3);
+        drawRoundedRectPath(ctx, cellX + 2, cellY + size / 2, size - 4, size / 2 - 2, Math.max(2, radius - 2));
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+        ctx.fill();
         
         ctx.globalAlpha = 1.0;
     }
@@ -786,7 +892,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function drawGhostBlock() {
         const { shape, color, x, y } = ghostBlock;
         const isValid = isValidPlacement(ghostBlock);
-        const ghostColor = isValid ? color : getCssVariable('--invalid-placement-color');
+        const ghostColor = isValid ? color : themeColors.invalidPlacement;
 
         ctx.globalAlpha = 0.5;
         shape.forEach((row, r) => {

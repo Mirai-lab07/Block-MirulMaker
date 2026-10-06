@@ -4,53 +4,91 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Block Puzzle Mirul Maker</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div id="main-menu">
         <div class="menu-content">
-            <h1>Block Puzzle Mirul Maker</h1>
-            <button id="classic-mode-btn">Game Classic</button>
-            <button id="level-mode-btn">Game Level</button>
+            <div class="logo-badge">
+                <i class="fa-solid fa-cubes-stacked logo-icon"></i>
+            </div>
+            <h1 class="game-title">BLOCK PUZZLE <span class="highlight">MIRUL MAKER</span></h1>
+            <p class="game-subtitle">Match blocks, clear lines, and reach the high score!</p>
+            <div class="menu-buttons">
+                <button id="classic-mode-btn" class="btn btn-primary">
+                    <i class="fa-solid fa-gamepad"></i> Game Classic
+                </button>
+                <button id="level-mode-btn" class="btn btn-secondary">
+                    <i class="fa-solid fa-trophy"></i> Game Level
+                </button>
+            </div>
         </div>
     </div>
 
     <div class="header" style="display: none;">
-        <h1>Block Puzzle Mirul Maker</h1>
-        <div class="volume-control">
-            <label for="volume-slider">Volume:</label>
-            <input type="range" id="volume-slider" min="0" max="1" step="0.1" value="0.5">
+        <h1 class="header-title"><i class="fa-solid fa-cubes"></i> Mirul Maker</h1>
+        <div class="header-controls">
+            <div class="volume-control">
+                <i class="fa-solid fa-volume-high volume-icon"></i>
+                <input type="range" id="volume-slider" min="0" max="1" step="0.1" value="0.5">
+            </div>
+            <button id="theme-switcher" class="icon-btn" title="Toggle Theme">
+                <i class="fa-solid fa-moon"></i>
+            </button>
+            <button id="pause-button" class="icon-btn" title="Pause Game">
+                <i class="fa-solid fa-pause"></i>
+            </button>
+            <button id="back-to-menu-btn" class="btn-menu-back">
+                <i class="fa-solid fa-arrow-left"></i> Menu
+            </button>
         </div>
-        <button id="theme-switcher">Toggle Theme</button>
-        <button id="pause-button">Pause</button>
-        <button id="back-to-menu-btn">Back to Menu</button>
     </div>
+
     <div class="game-container" style="display: none;">
-        <div class="score-container">
-            Score: <span id="score">0</span>
-            <div class="progress-bar-container">
-                <div id="progress-bar"></div>
+        <div class="stats-panel">
+            <div class="score-card score-container">
+                <div class="score-label"><i class="fa-solid fa-star"></i> SCORE</div>
+                <div class="score-value" id="score">0</div>
+                <div class="progress-bar-container">
+                    <div id="progress-bar"></div>
+                </div>
+            </div>
+            <div class="score-card high-score-container">
+                <div class="score-label"><i class="fa-solid fa-crown"></i> BEST</div>
+                <div class="score-value" id="high-score">0</div>
             </div>
         </div>
-        <div class="high-score-container">
-            Highest Score: <span id="high-score">0</span>
+        
+        <div class="canvas-wrapper">
+            <canvas id="gameGrid" width="400" height="400"></canvas>
         </div>
-        <canvas id="gameGrid" width="400" height="400"></canvas>
+
         <div id="block-container">
             <!-- Available blocks will be generated here by JS -->
         </div>
+
         <audio id="game-over-music" src="music/game-over.mp3"></audio>
         <audio id="background-music" loop src="music/game-music-loop-6-144641.mp3"></audio>
         <audio id="line-clear-sound" src="music/power-up-sparkle.mp3"></audio>
         <audio id="power-up-sound" src="music/power-up-sparkle.mp3"></audio>
         <audio id="explosion-sound" src="music/power-up-sparkle.mp3"></audio>
     </div>
+
     <div id="pause-menu">
         <div class="pause-menu-content">
+            <div class="pause-icon"><i class="fa-solid fa-circle-pause"></i></div>
             <h2>Game Paused</h2>
-            <button id="resume-button">Resume</button>
-            <button id="restart-button">Restart</button>
-            <button id="mute-button">Mute</button>
+            <div class="pause-buttons">
+                <button id="resume-button" class="btn btn-primary"><i class="fa-solid fa-play"></i> Resume</button>
+                <button id="restart-button" class="btn btn-warning"><i class="fa-solid fa-rotate-right"></i> Restart</button>
+                <button id="mute-button" class="btn btn-secondary"><i class="fa-solid fa-volume-xmark"></i> Mute</button>
+            </div>
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
